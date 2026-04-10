@@ -1,0 +1,16 @@
+{
+  "name": "phaxe-server",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "compression": "^1.7.5",
+    "cookie-parser": "^1.4.7",
+    "ws": "^8.18.0",
+    "undici": "^6.21.0",
+    "lru-cache": "^11.0.2",
+    "http-proxy-middleware": "^3.0.3",
+    "uuid": "^11.0.3"
+  }
+}
