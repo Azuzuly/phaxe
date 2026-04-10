@@ -1,0 +1,7 @@
+name = "phaxe-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+CLOAK_TITLE = "Google Docs"
+CLOAK_FAVICON = "https://ssl.gstatic.com/docs/documents/images/kix-favicon-2023q4-r4.ico"
