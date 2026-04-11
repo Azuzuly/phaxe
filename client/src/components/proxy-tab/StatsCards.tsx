@@ -1,22 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Globe, Zap, Activity, Clock, Wifi, HardDrive, Server } from 'lucide-react';
 import { useProxyStore } from '../../stores/proxyStore';
+import { buildApiUrl } from '../../config';
 
 function StatsCards() {
-  const { metrics, setMetrics, updateMetrics, logs } = useProxyStore();
+  const { metrics, updateMetrics, logs } = useProxyStore();
   const [lastFetched, setLastFetched] = useState<number>(0);
 
   const fetchMetrics = useCallback(async () => {
     try {
       // Ping the server to measure latency
       const pingStart = performance.now();
-      const response = await fetch('/api/metrics', { cache: 'no-store' });
+      const response = await fetch(buildApiUrl('/api/metrics'), { cache: 'no-store' });
       const pingEnd = performance.now();
       const latency = Math.round(pingEnd - pingStart);
 
       if (response.ok) {
         const data = await response.json();
-        setMetrics({
+        updateMetrics({
           total: data.total ?? metrics.total,
           completed: data.completed ?? metrics.completed,
           errors: data.errors ?? metrics.errors,
@@ -33,12 +34,12 @@ function StatsCards() {
       // Server may not be running in prod; keep existing metrics
       updateMetrics({ latency: -1 });
     }
-  }, [metrics, setMetrics]);
+  }, [metrics, updateMetrics]);
 
   // Fetch on mount and periodically
   useEffect(() => {
     fetchMetrics();
-    const interval = setInterval(fetchMetrics, 10000);
+    const interval = setInterval(fetchMetrics, 8000);
     return () => clearInterval(interval);
   }, [fetchMetrics]);
 
@@ -85,8 +86,8 @@ function StatsCards() {
     },
     {
       title: 'Avg Latency',
-      value: metrics.latency > 0 ? `${metrics.latency}ms` : metrics.latency === 0 ? '...' : 'Offline',
-      subtitle: formatBytes(metrics.bytesTransferred),
+      value: metrics.avgTime > 0 ? `${metrics.avgTime}ms` : metrics.latency === -1 ? 'Offline' : '...',
+      subtitle: metrics.latency > 0 ? `Ping ${metrics.latency}ms · ${formatBytes(metrics.bytesTransferred)}` : formatBytes(metrics.bytesTransferred),
       icon: <Clock size={20} />,
       color: 'text-amber-500',
       bgColor: 'bg-amber-500/10',

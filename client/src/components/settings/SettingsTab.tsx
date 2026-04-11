@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sun, Moon, Monitor, Trash2, Download, Upload, Key, Shield, Palette, Keyboard, Plus, X, Check } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useProxyStore } from '../../stores/proxyStore';
+import { DEFAULT_SHORTCUTS, type ShortcutConfig, useAIStore } from '../../stores/aiStore';
+import { buildApiUrl } from '../../config';
 import { db } from '../../db';
 
 const categories = [
@@ -15,27 +17,122 @@ const categories = [
 
 type ProviderFormat = 'openai' | 'anthropic' | 'gemini' | 'custom';
 
+const normalizeProviderLabel = (name: string) => {
+  if (name === 'OpenRouter (Free)') return 'Phaxe';
+  if (name === 'OpenRouter (Blocked)') return 'Phaxe (Unavailable)';
+  return name.replace(/puter/gi, 'Phaxe');
+};
+
+const shortcutRows: Array<{ key: keyof ShortcutConfig; action: string }> = [
+  { key: 'focusUrlBar', action: 'Focus URL bar' },
+  { key: 'openAiTab', action: 'Open AI tab' },
+  { key: 'toggleLiveScreen', action: 'Toggle Live Screen' },
+  { key: 'togglePip', action: 'Toggle PiP' },
+  { key: 'toggleDarkMode', action: 'Toggle dark mode' },
+  { key: 'sendMessage', action: 'Send AI message' },
+  { key: 'stopLiveScreen', action: 'Stop Live Screen / Close PiP' },
+  { key: 'panicKey', action: 'Panic key' },
+  { key: 'newConversation', action: 'New conversation' },
+  { key: 'refreshPage', action: 'Refresh page' },
+];
+
 function SettingsTab() {
   const { theme, setTheme } = useAppStore();
   const settings = useSettingsStore();
   const { clearLogs, updateMetrics } = useProxyStore();
+  const { shortcuts, setShortcut } = useAIStore();
 
   const [showProviderForm, setShowProviderForm] = useState(false);
   const [providerName, setProviderName] = useState('');
   const [providerBaseUrl, setProviderBaseUrl] = useState('');
   const [providerApiKey, setProviderApiKey] = useState('');
   const [providerFormat, setProviderFormat] = useState<ProviderFormat>('openai');
+  const [providerModels, setProviderModels] = useState<string>('');
+  const [activeCategory, setActiveCategory] = useState<string>('appearance');
+  const [recordingShortcut, setRecordingShortcut] = useState<keyof ShortcutConfig | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+        if (visible?.target?.id) {
+          setActiveCategory(visible.target.id.replace('settings-', ''));
+        }
+      },
+      {
+        root,
+        threshold: [0.2, 0.4, 0.6],
+        rootMargin: '-10% 0px -55% 0px',
+      }
+    );
+
+    categories.forEach((cat) => {
+      const el = document.getElementById(`settings-${cat.id}`);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!recordingShortcut) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === 'Escape') {
+        setRecordingShortcut(null);
+        return;
+      }
+
+      const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) return;
+
+      const parts: string[] = [];
+      if (event.ctrlKey) parts.push('Ctrl');
+      if (event.shiftKey) parts.push('Shift');
+      if (event.altKey) parts.push('Alt');
+      if (event.metaKey) parts.push('Meta');
+      parts.push(key);
+
+      setShortcut(recordingShortcut, parts.join('+'));
+      setRecordingShortcut(null);
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [recordingShortcut, setShortcut]);
+
+  const handleFormatChange = (format: ProviderFormat) => {
+    setProviderFormat(format);
+    const defaults: Record<ProviderFormat, string> = {
+      openai: 'gpt-4o, gpt-4o-mini, o3-mini',
+      anthropic: 'claude-sonnet-4-20250514, claude-opus-4-20250514, claude-haiku-4-20250514',
+      gemini: 'gemini-2.0-flash, gemini-2.0-pro, gemini-1.5-pro',
+      custom: '',
+    };
+    setProviderModels(defaults[format]);
+  };
 
   const handleAddProvider = async () => {
-    if (!providerName.trim() || !providerBaseUrl.trim() || !providerApiKey.trim()) return;
+    if (!providerName.trim() || !providerBaseUrl.trim()) return;
 
+    const models = providerModels.split(',').map((m) => m.trim()).filter(Boolean);
     const provider = {
       id: Date.now().toString(),
       name: providerName.trim(),
       baseUrl: providerBaseUrl.trim(),
       apiKey: providerApiKey.trim(),
       format: providerFormat,
-      models: [],
+      models,
       active: true,
     };
 
@@ -43,6 +140,7 @@ function SettingsTab() {
 
     // Also save to Dexie for persistence across sessions
     await db.apiProviders.add({
+      id: provider.id,
       name: provider.name,
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
@@ -54,12 +152,13 @@ function SettingsTab() {
     setProviderName('');
     setProviderBaseUrl('');
     setProviderApiKey('');
+    setProviderModels('');
     setShowProviderForm(false);
   };
 
   const handleDeleteProvider = async (id: string) => {
     settings.deleteApiProvider(id);
-    await db.apiProviders.where('id').equals(Number(id)).delete();
+    await db.apiProviders.where('id').equals(id).delete();
   };
 
   const handleClearHistory = async () => {
@@ -72,7 +171,7 @@ function SettingsTab() {
 
   const handleClearCache = async () => {
     try {
-      await fetch('/api/cache', { method: 'DELETE' });
+      await fetch(buildApiUrl('/api/cache'), { method: 'DELETE' });
       clearLogs();
       updateMetrics({ total: 0, completed: 0, errors: 0, avgTime: 0, cacheHits: 0, cacheMisses: 0 });
     } catch (err) {
@@ -159,6 +258,7 @@ function SettingsTab() {
         <nav className="space-y-1">
           {categories.map((cat) => {
             const Icon = cat.icon;
+            const isActive = activeCategory === cat.id;
             return (
               <button
                 key={cat.id}
@@ -166,7 +266,11 @@ function SettingsTab() {
                   const el = document.getElementById(`settings-${cat.id}`);
                   el?.scrollIntoView({ behavior: 'smooth' });
                 }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? 'bg-primary-500/15 text-primary-500 border border-primary-500/25'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] border border-transparent'
+                }`}
               >
                 <Icon size={14} />
                 {cat.label}
@@ -177,7 +281,7 @@ function SettingsTab() {
       </div>
 
       {/* Settings content */}
-      <div className="flex-1 overflow-auto p-6 space-y-10">
+      <div ref={contentRef} className="flex-1 overflow-auto p-6 space-y-10">
 
         {/* Appearance */}
         <div id="settings-appearance" className="max-w-lg space-y-6 scroll-mt-4">
@@ -369,7 +473,7 @@ function SettingsTab() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-[var(--color-text-primary)] truncate">
-                        {p.name}
+                        {normalizeProviderLabel(p.name)}
                       </div>
                       <div className="text-[10px] text-[var(--color-text-tertiary)] truncate">
                         {p.baseUrl} &middot; {p.format}
@@ -423,7 +527,7 @@ function SettingsTab() {
                 />
                 <select
                   value={providerFormat}
-                  onChange={(e) => setProviderFormat(e.target.value as ProviderFormat)}
+                  onChange={(e) => handleFormatChange(e.target.value as ProviderFormat)}
                   className="input text-xs py-1.5"
                 >
                   <option value="openai">OpenAI-compatible</option>
@@ -431,10 +535,17 @@ function SettingsTab() {
                   <option value="gemini">Google Gemini</option>
                   <option value="custom">Custom</option>
                 </select>
+                <input
+                  type="text"
+                  value={providerModels}
+                  onChange={(e) => setProviderModels(e.target.value)}
+                  placeholder="Models (comma-separated, e.g. gpt-4o, gpt-4o-mini)"
+                  className="input text-xs py-1.5"
+                />
                 <div className="flex gap-2">
                   <button
                     onClick={handleAddProvider}
-                    disabled={!providerName.trim() || !providerBaseUrl.trim() || !providerApiKey.trim()}
+                    disabled={!providerName.trim() || !providerBaseUrl.trim()}
                     className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-primary-600 text-white text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Check size={12} />
@@ -446,6 +557,7 @@ function SettingsTab() {
                       setProviderName('');
                       setProviderBaseUrl('');
                       setProviderApiKey('');
+                      setProviderModels('');
                     }}
                     className="px-3 py-1.5 rounded-lg bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] text-xs"
                   >
@@ -616,27 +728,49 @@ function SettingsTab() {
         <div id="settings-shortcuts" className="max-w-lg space-y-6 scroll-mt-4">
           <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">Keyboard Shortcuts</h3>
 
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Click a shortcut to record a key combo. Press <kbd className="px-1 py-0.5 rounded border border-[var(--color-border-primary)]">Esc</kbd> while recording to cancel.
+          </p>
+
           <div className="space-y-2">
-            {[
-              { keys: 'Ctrl + T', action: 'New tab' },
-              { keys: 'Ctrl + L', action: 'Focus URL bar' },
-              { keys: 'Ctrl + R', action: 'Refresh page' },
-              { keys: 'Ctrl + Shift + A', action: 'Open AI tab' },
-              { keys: 'Ctrl + Shift + L', action: 'Toggle Live Screen' },
-              { keys: 'Ctrl + Shift + P', action: 'Toggle PiP' },
-              { keys: 'Ctrl + Shift + D', action: 'Toggle dark mode' },
-              { keys: 'Ctrl + Enter', action: 'Send AI message' },
-              { keys: 'Esc', action: 'Stop Live Screen / Close PiP' },
-              { keys: '`', action: 'Panic Key (redirect to Google Classroom)' },
-            ].map((shortcut) => (
-              <div key={shortcut.keys} className="flex items-center justify-between py-2 border-b border-[var(--color-border-secondary)]">
-                <span className="text-sm text-[var(--color-text-secondary)]">{shortcut.action}</span>
-                <kbd className="px-2 py-1 rounded text-xs font-mono bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-primary)]">
-                  {shortcut.keys}
-                </kbd>
+            {shortcutRows.map((row) => (
+              <div key={row.key} className="flex items-center justify-between py-2 border-b border-[var(--color-border-secondary)] gap-2">
+                <span className="text-sm text-[var(--color-text-secondary)]">{row.action}</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setRecordingShortcut(row.key)}
+                    className={`px-2 py-1 rounded text-xs font-mono border transition-colors ${
+                      recordingShortcut === row.key
+                        ? 'bg-primary-500/15 text-primary-500 border-primary-500/40'
+                        : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border-[var(--color-border-primary)] hover:border-[var(--color-border-focus)]/40'
+                    }`}
+                    title="Record shortcut"
+                  >
+                    {recordingShortcut === row.key ? 'Press keys…' : shortcuts[row.key] || 'Unassigned'}
+                  </button>
+
+                  <button
+                    onClick={() => setShortcut(row.key, DEFAULT_SHORTCUTS[row.key])}
+                    className="px-2 py-1 rounded text-xs border border-[var(--color-border-primary)] text-[var(--color-text-tertiary)] hover:text-rose-500"
+                    title="Clear shortcut"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             ))}
           </div>
+
+          <button
+            onClick={() => {
+              (Object.keys(DEFAULT_SHORTCUTS) as Array<keyof ShortcutConfig>).forEach((key) => {
+                setShortcut(key, DEFAULT_SHORTCUTS[key]);
+              });
+            }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            Reset shortcuts to defaults
+          </button>
         </div>
       </div>
     </div>
