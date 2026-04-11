@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bookmark, Clock, ChevronLeft, ChevronRight, Folder, Tag, Search, ExternalLink, Trash2, Plus } from 'lucide-react';
+import { Bookmark, Clock, ChevronLeft, ChevronRight, Folder, Tag, Search, Trash2, Plus } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useBookmarks } from '../../hooks/useBookmarks';
 import { useHistory } from '../../hooks/useHistory';

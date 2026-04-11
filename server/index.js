@@ -42,7 +42,12 @@ const metrics = {
   cacheHits: 0,
   cacheMisses: 0,
   totalTime: 0,
+  bytesTransferred: 0,
+  activeSessions: 0,
 };
+
+// Track active WebSocket connections as proxy for active sessions
+let activeWsConnections = 0;
 
 // User agent rotation
 const userAgents = [
@@ -52,13 +57,23 @@ const userAgents = [
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15',
 ];
 
-// URL encoding/decoding
+// URL encoding/decoding (supports both standard base64url and URL-safe with _/-)
 function encodeUrl(url) {
-  return Buffer.from(url).toString('base64url');
+  return btoa(encodeURIComponent(url)).replace(/\//g, '_').replace(/\+/g, '-');
 }
 
 function decodeUrl(encoded) {
-  return Buffer.from(encoded, 'base64url').toString('utf-8');
+  // Try URL-safe format first (_ and -)
+  try {
+    return decodeURIComponent(atob(encoded.replace(/_/g, '/').replace(/-/g, '+')));
+  } catch {
+    // Fall back to standard base64url
+    try {
+      return Buffer.from(encoded, 'base64url').toString('utf-8');
+    } catch {
+      return '';
+    }
+  }
 }
 
 // Content rewriting
@@ -111,6 +126,8 @@ app.get('/proxy/:encodedUrl', async (req, res) => {
       res.set(cached.headers);
       res.set('X-Cache', 'HIT');
       res.set('X-Response-Time', `${duration}ms`);
+      const bodySize = JSON.stringify(cached.body).length;
+      metrics.bytesTransferred += bodySize;
       return res.send(cached.body);
     }
 
@@ -152,12 +169,13 @@ app.get('/proxy/:encodedUrl', async (req, res) => {
     if (contentType.includes('text/html')) {
       const text = await response.text();
       const rewritten = rewriteHtml(text, '');
-      
+
       cache.set(targetUrl, {
         headers,
         body: rewritten,
       });
 
+      metrics.bytesTransferred += Buffer.byteLength(rewritten);
       res.set(headers);
       res.set('X-Cache', 'MISS');
       res.set('X-Response-Time', `${Date.now() - startTime}ms`);
@@ -167,12 +185,13 @@ app.get('/proxy/:encodedUrl', async (req, res) => {
 
     // For non-HTML, pipe directly
     const buffer = Buffer.from(await response.arrayBuffer());
-    
+
     cache.set(targetUrl, {
       headers,
       body: buffer,
     });
 
+    metrics.bytesTransferred += buffer.length;
     res.set(headers);
     res.set('X-Cache', 'MISS');
     res.set('X-Response-Time', `${Date.now() - startTime}ms`);
@@ -197,7 +216,15 @@ app.get('/proxy/:encodedUrl', async (req, res) => {
 
 // API routes
 app.get('/api/metrics', (req, res) => {
-  res.json(metrics);
+  res.json({
+    ...metrics,
+    activeSessions: activeWsConnections,
+  });
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: Date.now() });
 });
 
 app.get('/api/cache', (req, res) => {

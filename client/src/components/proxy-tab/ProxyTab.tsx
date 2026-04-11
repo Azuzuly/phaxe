@@ -1,4 +1,5 @@
 import { useProxyStore } from '../../stores/proxyStore';
+import { encodeProxyUrl } from '../../lib/url';
 import StatsCards from './StatsCards';
 import RequestLog from './RequestLog';
 
@@ -10,7 +11,7 @@ function ProxyTab() {
       <div className="h-full flex flex-col">
         <div className="flex-1 relative">
           <iframe
-            src={`/proxy/${btoa(currentUrl)}`}
+            src={`/proxy/${encodeProxyUrl(currentUrl)}`}
             className="w-full h-full border-0"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             title="Proxied content"

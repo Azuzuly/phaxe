@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useProxyStore, RequestLog as RequestLogType } from '../../stores/proxyStore';
 
 function RequestLog() {
@@ -21,26 +21,6 @@ function RequestLog() {
     estimateSize: () => 48,
     overscan: 5,
   });
-
-  // WebSocket connection for real-time updates
-  useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.hostname}:3002`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'request') {
-          // Logs are managed by the store
-        }
-      } catch {
-        // ignore parse errors
-      }
-    };
-    ws.onclose = () => {
-      // Auto-reconnect after 3s
-      setTimeout(() => {}, 3000);
-    };
-    return () => ws.close();
-  }, []);
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);

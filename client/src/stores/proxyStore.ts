@@ -22,6 +22,9 @@ interface ProxyState {
     avgTime: number;
     cacheHits: number;
     cacheMisses: number;
+    bytesTransferred: number;
+    latency: number;
+    activeSessions: number;
   };
 
   setCurrentUrl: (url: string) => void;
@@ -31,6 +34,7 @@ interface ProxyState {
   addLog: (log: RequestLog) => void;
   clearLogs: () => void;
   updateMetrics: (metrics: Partial<ProxyState['metrics']>) => void;
+  setMetrics: (metrics: ProxyState['metrics']) => void;
 }
 
 export const useProxyStore = create<ProxyState>((set) => ({
@@ -45,6 +49,9 @@ export const useProxyStore = create<ProxyState>((set) => ({
     avgTime: 0,
     cacheHits: 0,
     cacheMisses: 0,
+    bytesTransferred: 0,
+    latency: 0,
+    activeSessions: 0,
   },
 
   setCurrentUrl: (url) => set({ currentUrl: url }),
@@ -86,4 +93,5 @@ export const useProxyStore = create<ProxyState>((set) => ({
     set((state) => ({
       metrics: { ...state.metrics, ...metrics },
     })),
+  setMetrics: (metrics) => set({ metrics }),
 }));

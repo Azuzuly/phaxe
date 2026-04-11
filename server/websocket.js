@@ -4,6 +4,9 @@ const wss = new WebSocket.Server({ port: 3002 });
 
 console.log('WebSocket server running on ws://localhost:3002');
 
+// Export active connection count for metrics
+module.exports.getActiveConnections = () => wss.clients.size;
+
 wss.on('connection', (ws) => {
   console.log('Client connected to WebSocket');
 

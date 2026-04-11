@@ -180,7 +180,10 @@ export const useAIStore = create<AIState>()(
         const convs: AIConversation[] = dbConvs.map((dc) => ({
           id: dc.id?.toString() || Date.now().toString(),
           title: dc.title,
-          messages: dc.messages,
+          messages: dc.messages.map((m: { id: string; role: string; content: string; timestamp: number; screenshot?: string }) => ({
+            ...m,
+            role: m.role as 'user' | 'assistant' | 'system',
+          })),
           model: dc.model,
           createdAt: dc.createdAt,
           updatedAt: dc.updatedAt,
